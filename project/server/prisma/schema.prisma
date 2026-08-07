@@ -9,6 +9,232 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
 }
 
+
+// ==========================
+// Student Model
+// ==========================
+model Student {
+  id               String          @id @default(auto()) @map("_id") @db.ObjectId
+  enrollmentNo     String          
+  name             String
+  email            String
+  phone            String
+  branch           String          // CS, EC, ME, CE, etc.
+  year             Int             // 1, 2, 3, 4
+  batch            String          // 2024-2028
+  semester         Int             // 1-8
+  passwordHash     String
+  isActive         Boolean         @default(true)
+  role             Role            @default(STUDENT)
+  feePayments      FeePayment[]
+  scholarships     Scholarship[]
+  notifications    Notification[]
+  transactions     Transaction[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([enrollmentNo])
+  @@index([email])
+  @@index([branch, year, batch])
+}
+
+// ==========================
+// Fee Structure Model
+// ==========================
+model FeeStructure {
+  id          String          @id @default(auto()) @map("_id") @db.ObjectId
+  batch       String
+  branch      String
+  year        Int
+  semester    Int
+  feeHeads    FeeHead[]
+  isActive    Boolean         @default(true)
+  createdBy   String          @db.ObjectId
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([batch, branch, year, semester])
+  @@index([batch, semester])
+  @@index([branch, semester])
+}
+
+// ==========================
+// Fee Head (Embedded in FeeStructure)
+// ==========================
+type FeeHead {
+  id          String
+  name        String          // Tuition, Exam, Hostel, Bus, Library
+  amount      Float
+  dueDate     DateTime
+  description String?
+  isActive    Boolean         @default(true)
+}
+
+// ==========================
+// Fee Payment Model
+// ==========================
+model FeePayment {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  studentId       String          @db.ObjectId
+  student         Student         @relation(fields: [studentId], references: [id])
+  semester        Int
+  feeHead         String          // Name of the fee head
+  originalAmount  Float
+  paidAmount      Float
+  remainingDues   Float
+  razorpayId      String?         // Razorpay payment ID
+  orderId         String?         // Razorpay order ID
+  status          PaymentStatus   @default(PENDING)
+  paidAt          DateTime?
+  receiptUrl      String?         // S3 URL
+  paymentMethod   String?         // UPI, Card, NetBanking, Wallet
+  metadata        Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([studentId])
+  @@index([status])
+  @@index([razorpayId])
+  @@index([createdAt])
+  @@index([studentId, semester])
+}
+
+// ==========================
+// Transaction Model
+// ==========================
+model Transaction {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  studentId       String          @db.ObjectId
+  student         Student         @relation(fields: [studentId], references: [id])
+  amount          Float
+  feeHeads        String[]        // Array of fee head names
+  gatewayRef      String          // Razorpay payment ID
+  orderId         String?
+  status          TransactionStatus @default(CREATED)
+  method          String?         // Payment method
+  type            TransactionType @default(PAYMENT)
+  metadata        Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([studentId])
+  @@index([gatewayRef])
+  @@index([createdAt])
+  @@index([status])
+}
+
+// ==========================
+// Scholarship Model
+// ==========================
+model Scholarship {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  studentId       String          @db.ObjectId
+  student         Student         @relation(fields: [studentId], references: [id])
+  amount          Float
+  type            String          // Merit, Need-based, Sports, etc.
+  description     String?
+  appliedAt       DateTime        @default(now())
+  approvedBy      String?         @db.ObjectId
+  approvedAt      DateTime?
+  status          ScholarshipStatus @default(PENDING)
+  validity        DateTime?       // Expiry date of scholarship
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([studentId])
+  @@index([status])
+}
+
+// ==========================
+// Notification Model
+// ==========================
+model Notification {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  studentId       String          @db.ObjectId
+  student         Student         @relation(fields: [studentId], references: [id])
+  type            NotificationType
+  subject         String?
+  message         String
+  sentAt          DateTime        @default(now())
+  readAt          DateTime?
+  metadata        Json?
+  createdAt       DateTime        @default(now())
+
+  @@index([studentId])
+  @@index([type])
+  @@index([sentAt])
+  @@index([readAt])
+}
+
+// ==========================
+// Admin Activity Log Model
+// ==========================
+model AdminActivityLog {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  adminId         String          @db.ObjectId
+  adminEmail      String
+  action          String          // CREATE, UPDATE, DELETE, EXPORT, etc.
+  module          String          // FeeStructure, Student, Payment, etc.
+  changes         Json?
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime        @default(now())
+
+  @@index([adminId])
+  @@index([module])
+  @@index([createdAt])
+}
+
+// ==========================
+// Enums
+// ==========================
+enum Role {
+  STUDENT
+  ACCOUNTS_TEAM
+  HOD
+  FINANCE_CONTROLLER
+  SYSTEM_ADMIN
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+  PARTIAL
+}
+
+enum TransactionStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum TransactionType {
+  PAYMENT
+  REFUND
+  SCHOLARSHIP_ADJUSTMENT
+  OFFLINE_PAYMENT
+}
+
+enum ScholarshipStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum NotificationType {
+  FEE_REMINDER
+  PAYMENT_SUCCESS
+  PAYMENT_FAILURE
+  SCHOLARSHIP_APPROVED
+  SYSTEM_ALERT
+  OTP_VERIFICATION
+  DEFUALTER_NOTICE
+}
